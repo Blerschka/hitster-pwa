@@ -1,6 +1,6 @@
 // ==== Spotify OAuth ====
 const clientId = '6d0c030b54b54b84aaaed5fab18013e7'; // <-- Hier deine Spotify Client ID eintragen!
-const redirectUri = 'https://DEIN-USERNAME.github.io/DEIN-REPO/'; // <-- Deine GitHub Pages URL!
+const redirectUri = 'https://blerschka.github.io/hitster-pwa/'; // <-- Deine GitHub Pages URL!
 let accessToken = null;
 let player = null;
 let currentTrackUri = null;
@@ -106,4 +106,5 @@ document.getElementById('play-btn').onclick = () => {
 };
 document.getElementById('pause-btn').onclick = () => {
   if (player) player.pause();
+
 };
