@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hitster KnockOff</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://unpkg.com/html5-qrcode"></script>
+</head>
+<body>
+  <h1>Hitster KnockOff</h1>
+  <div id="login-section">
+    <button id="login-btn">Mit Spotify einloggen</button>
+  </div>
+  <div id="loading-info" style="display:none;">
+    <p id="loading-text">Bitte warten...</p>
+  </div>
+  <div id="player-section" style="display:none;">
+    <div id="qr-reader" style="width:300px; margin:auto; display:none;"></div>
+    <p id="track-info"></p>
+    <button id="play-btn" style="display:none;">Play</button>
+    <button id="pause-btn" style="display:none;">Pause</button>
+    <button id="new-song-btn" style="display:none;">Neues Lied</button>
+    <p id="song-status"></p>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
