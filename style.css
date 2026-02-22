@@ -1,0 +1,18 @@
+body {
+  font-family: sans-serif;
+  text-align: center;
+  background: #f0f0f0;
+}
+#qr-reader {
+  margin: 20px auto;
+}
+button {
+  padding: 10px 20px;
+  font-size: 1.1em;
+  border-radius: 5px;
+  border: none;
+  background: #1db954;
+  color: white;
+  cursor: pointer;
+  margin: 5px;
+}
