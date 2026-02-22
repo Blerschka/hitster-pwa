@@ -1,35 +1,91 @@
-// ==== Spotify OAuth ====
-const clientId = '6d0c030b54b54b84aaaed5fab18013e7'; // <-- Hier deine Spotify Client ID eintragen!
-const redirectUri = 'https://blerschka.github.io/hitster-pwa/'; // <-- Deine GitHub Pages URL!
+// ==== Spotify PKCE OAuth ====
+const clientId = '6d0c030b54b54b84aaaed5fab18013e7';
+const redirectUri = 'https://blerschka.github.io/hitster-pwa/';
 let accessToken = null;
 let player = null;
 let currentTrackUri = null;
 
-// Spotify Login
-document.getElementById('login-btn').onclick = () => {
-  const scopes = 'streaming user-read-email user-read-private';
-  window.location = `https://accounts.spotify.com/authorize?client_id=${clientId}&response_type=token&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}`;
+// PKCE Hilfsfunktionen
+function generateRandomString(length) {
+  let text = '';
+  const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  for (let i = 0; i < length; i++) {
+    text += possible.charAt(Math.floor(Math.random() * possible.length));
+  }
+  return text;
+}
+
+function base64urlencode(a) {
+  return btoa(String.fromCharCode.apply(null, new Uint8Array(a)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function sha256(plain) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(plain);
+  return await window.crypto.subtle.digest('SHA-256', data);
+}
+
+// Spotify Login mit PKCE
+let codeVerifier = generateRandomString(128);
+
+document.getElementById('login-btn').onclick = async () => {
+  const codeChallenge = base64urlencode(await sha256(codeVerifier));
+  const state = generateRandomString(16);
+  const scope = 'streaming user-read-email user-read-private';
+
+  localStorage.setItem('code_verifier', codeVerifier);
+
+  const args = new URLSearchParams({
+    response_type: 'code',
+    client_id: clientId,
+    scope: scope,
+    redirect_uri: redirectUri,
+    state: state,
+    code_challenge_method: 'S256',
+    code_challenge: codeChallenge
+  });
+
+  window.location = `https://accounts.spotify.com/authorize?${args.toString()}`;
 };
 
-// Token aus URL holen
-function getTokenFromUrl() {
-  const hash = window.location.hash;
-  if (hash) {
-    const params = new URLSearchParams(hash.substring(1));
-    return params.get('access_token');
-  }
-  return null;
+// Access Token holen (nach Redirect)
+async function getAccessTokenPKCE() {
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+  if (!code) return;
+
+  codeVerifier = localStorage.getItem('code_verifier');
+
+  const body = new URLSearchParams({
+    grant_type: 'authorization_code',
+    code: code,
+    redirect_uri: redirectUri,
+    client_id: clientId,
+    code_verifier: codeVerifier
+  });
+
+  const response = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body: body
+  });
+
+  const data = await response.json();
+  accessToken = data.access_token;
+
+  // Jetzt kannst du den Spotify Player initialisieren und QR-Code-Scanner starten!
+  document.getElementById('login-section').style.display = 'none';
+  document.getElementById('player-section').style.display = 'block';
+  await loadSpotifyPlayer();
+  startQRScanner();
 }
 
 // Nach Login
 window.onload = async () => {
-  accessToken = getTokenFromUrl();
-  if (accessToken) {
-    document.getElementById('login-section').style.display = 'none';
-    document.getElementById('player-section').style.display = 'block';
-    await loadSpotifyPlayer();
-    startQRScanner();
-  }
+  await getAccessTokenPKCE();
   // Service Worker registrieren
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('service-worker.js');
@@ -106,5 +162,4 @@ document.getElementById('play-btn').onclick = () => {
 };
 document.getElementById('pause-btn').onclick = () => {
   if (player) player.pause();
-
 };
