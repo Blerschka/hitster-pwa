@@ -117,7 +117,7 @@ function loadSpotifyPlayer() {
   });
 }
 
-// ==== QR-Code Scanner ====
+// ==== QR-Code Scanner (robust) ====
 function showQRScanner() {
   document.getElementById('qr-reader').style.display = 'block';
   document.getElementById('play-btn').style.display = 'none';
@@ -125,15 +125,17 @@ function showQRScanner() {
   document.getElementById('new-song-btn').style.display = 'none';
   document.getElementById('track-info').innerText = '';
   document.getElementById('song-status').innerText = '';
+
   if (!qr) qr = new Html5Qrcode("qr-reader");
+
   qr.start(
     { facingMode: "environment" },
     { fps: 10, qrbox: 250 },
-    (decodedText, decodedResult) => {
-      if (decodedText.startsWith("https://open.spotify.com/track/")) {
-        const trackId = decodedText.split("/track/")[1].split("?")[0];
-        currentTrackUri = `spotify:track:${trackId}`;
-        document.getElementById('track-info').innerText = "Track erkannt: " + trackId;
+    (decodedText) => {
+      const id = extractSpotifyTrackId(decodedText);
+      if (id) {
+        currentTrackUri = `spotify:track:${id}`;
+        document.getElementById('track-info').innerText = "Track erkannt: " + id;
         qr.stop();
         document.getElementById('qr-reader').style.display = 'none';
         playTrack(currentTrackUri);
@@ -148,6 +150,23 @@ function showQRScanner() {
       }
     }
   );
+}
+
+// Universelle Extraktion der TrackID aus URL oder URI
+function extractSpotifyTrackId(text) {
+  if (!text) return null;
+  const s = text.trim();
+
+  // 1) spotify:track:<ID>
+  const uriMatch = s.match(/^spotify:track:([A-Za-z0-9]{22})$/i);
+  if (uriMatch) return uriMatch[1];
+
+  // 2) https?://open.spotify.com/(optional locale)/track/<ID>(?…)
+  //    Locale kann z.B. intl-de, en-US etc. sein. Slash dahinter ist optional.
+  const urlMatch = s.match(/^https?:\/\/open\.spotify\.com\/(?:[a-z-]+\/)?track\/([A-Za-z0-9]{22})(?:[?#].*)?$/i);
+  if (urlMatch) return urlMatch[1];
+
+  return null;
 }
 
 // ==== Spotify Track abspielen ====
@@ -201,4 +220,5 @@ window.onload = async () => {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('service-worker.js');
   }
+
 };
