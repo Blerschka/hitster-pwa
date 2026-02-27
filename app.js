@@ -234,7 +234,7 @@ function extractSpotifyTrackId(text) {
   return null;
 }
 
-// ==== Spotify Track abspielen (mit Transfer) ====
+// ==== Spotify Track abspielen (mit Transfer) – immer ab 0:00 ====
 async function playTrack(uri) {
   try {
     updateSongStatus("Lade Song...");
@@ -249,15 +249,24 @@ async function playTrack(uri) {
       body: JSON.stringify({ device_ids: [window.spotifyDeviceId], play: true })
     });
 
-    // 2) Jetzt auf diesem Device spielen
+    // 2) Jetzt auf diesem Device spielen – IMMER bei 0ms
     await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${window.spotifyDeviceId}`, {
       method: 'PUT',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ uris: [uri] })
+      body: JSON.stringify({
+        uris: [uri],
+        position_ms: 0        // <— NEU: Start forciert bei 0:00
+      })
     });
+
+    // (Optionaler Fallback bei hartnäckigen Clients)
+    // await fetch(`https://api.spotify.com/v1/me/player/seek?position_ms=0&device_id=${window.spotifyDeviceId}`, {
+    //   method: 'PUT',
+    //   headers: { 'Authorization': `Bearer ${accessToken}` }
+    // });
 
     updateSongStatus("Wird abgespielt...");
     isPlaying = true;
@@ -305,3 +314,4 @@ window.onload = async () => {
     navigator.serviceWorker.register('service-worker.js');
   }
 };
+
