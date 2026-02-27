@@ -7,13 +7,11 @@ let currentTrackUri = null;
 let qr = null;
 let isPlaying = false;
 
-// PKCE Hilfsfunktionen
+// ===== PKCE Helper =====
 function generateRandomString(length) {
   let text = '';
   const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  for (let i = 0; i < length; i++) {
-    text += possible.charAt(Math.floor(Math.random() * possible.length));
-  }
+  for (let i = 0; i < length; i++) text += possible.charAt(Math.floor(Math.random() * possible.length));
   return text;
 }
 function base64urlencode(a) {
@@ -26,22 +24,32 @@ async function sha256(plain) {
   return await window.crypto.subtle.digest('SHA-256', data);
 }
 
-// Spotify Login mit PKCE
+// ==== Spotify Login mit PKCE ====
 let codeVerifier = generateRandomString(128);
 
 document.getElementById('login-btn').onclick = async () => {
   const codeChallenge = base64urlencode(await sha256(codeVerifier));
   const state = generateRandomString(16);
-  const scope = 'streaming user-read-email user-read-private';
 
+  // Scopes: für Web Playback + Steuerung
+  const scope = [
+    'streaming',
+    'user-read-email',
+    'user-read-private',
+    'user-modify-playback-state',
+    'user-read-playback-state'
+  ].join(' ');
+
+  // PKCE + State persistieren
   localStorage.setItem('code_verifier', codeVerifier);
+  localStorage.setItem('pkce_state', state);
 
   const args = new URLSearchParams({
     response_type: 'code',
     client_id: clientId,
-    scope: scope,
+    scope,
     redirect_uri: redirectUri,
-    state: state,
+    state,
     code_challenge_method: 'S256',
     code_challenge: codeChallenge
   });
@@ -49,40 +57,98 @@ document.getElementById('login-btn').onclick = async () => {
   window.location = `https://accounts.spotify.com/authorize?${args.toString()}`;
 };
 
-// Access Token holen (nach Redirect)
+// ===== Access Token holen (nach Redirect) =====
 async function getAccessTokenPKCE() {
   const params = new URLSearchParams(window.location.search);
-  const code = params.get('code');
+  const code   = params.get('code');
+  const state  = params.get('state');
+
+  // 1) Bereits ein Token vorhanden? (z. B. Reload ohne neuen Code)
+  const savedToken = sessionStorage.getItem('spotify_access_token');
+  const savedExp   = Number(sessionStorage.getItem('spotify_token_expires') || '0');
+  const now = Date.now();
+  if (savedToken && savedExp > now && !code) {
+    accessToken = savedToken;
+    await showPlayerAndScanner();
+    return;
+  }
+
+  // 2) Kein Code in URL -> nichts zu tun
   if (!code) return;
 
-  codeVerifier = localStorage.getItem('code_verifier');
+  // 3) State + Verifier prüfen (sonst abbrechen)
+  const expectedState = localStorage.getItem('pkce_state');
+  const storedVerifier = localStorage.getItem('code_verifier');
+  if (!state || state !== expectedState || !storedVerifier) {
+    console.warn('Ungültiger Redirect: State/Verifier fehlt oder passt nicht.');
+    cleanupQueryString();
+    showLogin();
+    return;
+  }
 
+  // UI: Loading
   document.getElementById('login-section').style.display = 'none';
   document.getElementById('loading-info').style.display = 'block';
   document.getElementById('loading-text').innerText = "Player wird initialisiert...";
 
+  // 4) Token-Tausch
   const body = new URLSearchParams({
     grant_type: 'authorization_code',
-    code: code,
+    code,
     redirect_uri: redirectUri,
     client_id: clientId,
-    code_verifier: codeVerifier
+    code_verifier: storedVerifier
   });
 
   const response = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded'
-    },
-    body: body
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body
   });
 
   const data = await response.json();
+
+  if (!response.ok || !data.access_token) {
+    console.error('Token-Tausch fehlgeschlagen:', data);
+    // Aufräumen & zurück zum Login
+    localStorage.removeItem('code_verifier');
+    localStorage.removeItem('pkce_state');
+    cleanupQueryString();
+    document.getElementById('loading-info').style.display = 'none';
+    showLogin("Login abgelaufen. Bitte erneut anmelden.");
+    return;
+  }
+
+  // 5) Erfolg: Token cachen (Session), Verifier+State löschen, URL bereinigen
   accessToken = data.access_token;
+  const expiresInMs = Number(data.expires_in || 3600) * 1000;
+  sessionStorage.setItem('spotify_access_token', accessToken);
+  sessionStorage.setItem('spotify_token_expires', String(Date.now() + expiresInMs));
+  localStorage.removeItem('code_verifier');
+  localStorage.removeItem('pkce_state');
 
-  await loadSpotifyPlayer();
+  cleanupQueryString(); // ?code=...&state=... entfernen
 
+  await showPlayerAndScanner();
+}
+
+function cleanupQueryString() {
+  // URL auf Pfad ohne Query/Hash zurücksetzen (vermeidet erneuten Code-Tausch beim Reload)
+  const cleanUrl = window.location.origin + window.location.pathname;
+  window.history.replaceState({}, document.title, cleanUrl);
+}
+
+function showLogin(hint) {
+  if (hint) document.getElementById('song-status').innerText = hint;
+  document.getElementById('login-section').style.display = 'block';
+  document.getElementById('player-section').style.display = 'none';
   document.getElementById('loading-info').style.display = 'none';
+}
+
+async function showPlayerAndScanner() {
+  await loadSpotifyPlayer();
+  document.getElementById('loading-info').style.display = 'none';
+  document.getElementById('login-section').style.display = 'none';
   document.getElementById('player-section').style.display = 'block';
   showQRScanner();
 }
@@ -93,7 +159,7 @@ function loadSpotifyPlayer() {
     window.onSpotifyWebPlaybackSDKReady = () => {
       player = new Spotify.Player({
         name: 'Hitster Geschenk Player',
-        getOAuthToken: cb => { cb(accessToken); }
+        getOAuthToken: cb => cb(accessToken)
       });
 
       player.addListener('ready', ({ device_id }) => {
@@ -162,28 +228,44 @@ function extractSpotifyTrackId(text) {
   if (uriMatch) return uriMatch[1];
 
   // 2) https?://open.spotify.com/(optional locale)/track/<ID>(?…)
-  //    Locale kann z.B. intl-de, en-US etc. sein. Slash dahinter ist optional.
   const urlMatch = s.match(/^https?:\/\/open\.spotify\.com\/(?:[a-z-]+\/)?track\/([A-Za-z0-9]{22})(?:[?#].*)?$/i);
   if (urlMatch) return urlMatch[1];
 
   return null;
 }
 
-// ==== Spotify Track abspielen ====
-function playTrack(uri) {
-  updateSongStatus("Lade Song...");
-  fetch(`https://api.spotify.com/v1/me/player/play?device_id=${window.spotifyDeviceId}`, {
-    method: 'PUT',
-    body: JSON.stringify({ uris: [uri] }),
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${accessToken}`
-    }
-  }).then(() => {
+// ==== Spotify Track abspielen (mit Transfer) ====
+async function playTrack(uri) {
+  try {
+    updateSongStatus("Lade Song...");
+
+    // 1) Playback auf Web-Player übertragen und starten
+    await fetch('https://api.spotify.com/v1/me/player', {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ device_ids: [window.spotifyDeviceId], play: true })
+    });
+
+    // 2) Jetzt auf diesem Device spielen
+    await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${window.spotifyDeviceId}`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ uris: [uri] })
+    });
+
     updateSongStatus("Wird abgespielt...");
     isPlaying = true;
     updatePlayPauseButtons();
-  });
+  } catch (e) {
+    console.error(e);
+    updateSongStatus("Konnte Song nicht starten. Bitte erneut versuchen.");
+  }
 }
 
 // ==== Play/Pause Buttons ====
@@ -214,11 +296,12 @@ function updateSongStatus(text) {
   document.getElementById('song-status').innerText = text;
 }
 
-// ==== Nach erfolgreichem Login ====
+// ==== Nach erfolgreichem Login / Initialisierung ====
 window.onload = async () => {
   await getAccessTokenPKCE();
+
+  // Optional: Service Worker
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('service-worker.js');
   }
-
 };
